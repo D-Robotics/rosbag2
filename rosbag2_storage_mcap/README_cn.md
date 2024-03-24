@@ -1,4 +1,4 @@
-English| [简体中文](./README_cn.md)
+[English](./README.md) | 简体中文
 
 # rosbag2_storage_mcap
 
@@ -49,7 +49,8 @@ To configure details of the MCAP writer for `ros2 bag record`, use the `--storag
 | noSummaryCRC | bool | Disable CRC calculation for the Summary section. |
 | noChunking | bool | Do not write Chunks to the file, instead writing Schema, Channel, and Message records directly into the Data section. |
 | noMessageIndex | bool | Do not write Message Index records to the file. If `noSummary=true` and `noChunkIndex=false`, Chunk Index records will still be written to the Summary section, providing a coarse message index. |
-| noSummary | bool | Do not write Summary or Summary Offset sections to the file, placing the Footer record immediately after DataEnd. This can provide some speed boost to file writing and produce smaller files, at the expense of requiring a conversion process later if fast summarization or indexed access is desired. || chunkSize | unsigned int | Target uncompressed Chunk payload size in bytes. Once a Chunk's uncompressed data meets or exceeds this size, the Chunk will be compressed (if compression is enabled) and written to disk. Note that smaller Chunks may be written, such as the last Chunk in the Data section. This option is ignored if `noChunking=true`. |
+| noSummary | bool | Do not write Summary or Summary Offset sections to the file, placing the Footer record immediately after DataEnd. This can provide some speed boost to file writing and produce smaller files, at the expense of requiring a conversion process later if fast summarization or indexed access is desired. |
+| chunkSize | unsigned int | Target uncompressed Chunk payload size in bytes. Once a Chunk's uncompressed data meets or exceeds this size, the Chunk will be compressed (if compression is enabled) and written to disk. Note that smaller Chunks may be written, such as the last Chunk in the Data section. This option is ignored if `noChunking=true`. |
 | compression | "None", "Lz4", "Zstd" | Compression algorithm to use when writing Chunks. This option is ignored if `noChunking=true`. |
 | compressionLevel | "Fastest", "Fast", "Default", "Slow", "Slowest" | Compression level to use when writing Chunks. Slower generally produces smaller files, at the expense of more CPU time. These levels map to different internal settings for each compression algorithm. |
 | forceCompression | bool | By default, Chunks that do not benefit from compression will be written uncompressed. This option can be used to force compression on all Chunks. This option is ignored if `noChunking=true`. |
@@ -97,7 +98,9 @@ noChunking: true
 noSummaryCRC: true
 ```
 
-Using MCAPs written with `fastwrite` as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with `fastwrite`, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:```bash
+Using MCAPs written with `fastwrite` as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with `fastwrite`, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:
+
+```bash
 # Using the MCAP CLI https://github.com/foxglove/mcap/tree/main/go/cli/mcap
 $ mcap compress fast.mcap -o compressed.mcap
 # Using `ros2 bag convert`
@@ -143,4 +146,3 @@ chunkSize: 4194304 # 4 * 1024 * 1024
 ### ROS 2 Distro maintenance
 
 Whenever a ROS 2 distribution reaches EOL, search for comments marked COMPATIBILITY - which may no longer be needed when no new releases will be made for that distro.
-```

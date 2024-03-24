@@ -1,4 +1,4 @@
-English| [简体中文](./README_cn.md)
+[English](./README.md) | 简体中文
 
 # ROS 2.0 Rosbag Evaluation
 
@@ -48,7 +48,9 @@ It is used for data analysis and visualization.
 
 ### Setup
 
-Prerequisites: Python 3.5+, [pip](https://pip.pypa.io/en/stable/), [virtualenv](https://virtualenv.pypa.io/en/stable/)```
+Prerequisites: Python 3.5+, [pip](https://pip.pypa.io/en/stable/), [virtualenv](https://virtualenv.pypa.io/en/stable/)
+
+```
 virtualenv -p python3 venv
 . venv/bin/activate
 pip install -r requirements.txt
@@ -82,4 +84,3 @@ where `MessageStream` is a lazy data structure
 implemented with a streaming SQLite `SELECT` statement.
 
 The desired timings can then be measured with the `Profiler`.
-```
