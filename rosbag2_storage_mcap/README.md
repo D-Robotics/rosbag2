@@ -1,5 +1,3 @@
-English| [简体中文](./README_cn.md)
-
 # rosbag2_storage_mcap
 
 This package provides a [storage plugin](https://github.com/ros2/rosbag2#storage-format-plugin-architecture) for rosbag2 which extends it with support for the [MCAP](https://mcap.dev) file format.
