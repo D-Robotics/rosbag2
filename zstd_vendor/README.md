@@ -1,5 +1,3 @@
-English| [简体中文](./README_cn.md)
-
 # zstd_vendor
 
 CMake wrapper for the [Zstandard compression](https://facebook.github.io/zstd/) library.
