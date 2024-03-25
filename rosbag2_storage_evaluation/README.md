@@ -1,5 +1,3 @@
-English| [简体中文](./README_cn.md)
-
 # ROS 2.0 Rosbag Evaluation
 
 ## Benchmarks
