@@ -1263,6 +1263,23 @@ TEST_F(SequentialWriterTest, split_event_calls_on_writer_close)
   EXPECT_TRUE(opened_file.empty());
 }
 
+TEST_F(SequentialWriterTest, split_bagfile_async_rolls_over_to_new_file)
+{
+  auto sequential_writer = std::make_unique<rosbag2_cpp::writers::SequentialWriter>(
+    std::move(storage_factory_), converter_factory_, std::move(metadata_io_));
+  writer_ = std::make_unique<rosbag2_cpp::Writer>(std::move(sequential_writer));
+
+  writer_->open(storage_options_, {"rmw_format", "rmw_format"});
+  writer_->create_topic({0u, "test_topic", "test_msgs/BasicTypes", "", {}, ""});
+
+  writer_->split_bagfile_async();
+  writer_->close();
+
+  ASSERT_GE(fake_metadata_.relative_file_paths.size(), 2u);
+  EXPECT_TRUE(matches_filename_pattern(fake_metadata_.relative_file_paths[0], bag_base_dir_, 0));
+  EXPECT_TRUE(matches_filename_pattern(fake_metadata_.relative_file_paths[1], bag_base_dir_, 1));
+}
+
 TEST_F(SequentialWriterTest, circular_logging_limits_number_of_files_by_max_bag_files)
 {
   // Configure frequent splits and a small retention window
