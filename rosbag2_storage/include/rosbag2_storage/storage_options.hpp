@@ -54,6 +54,19 @@ public:
   // Enable snapshot mode.
   // Defaults to disabled.
   bool snapshot_mode = false;
+
+  // Delay consumer notification until cache buffer is at least half full.
+  // When true, messages are batched before writing to disk, improving throughput.
+  // A timeout (delay_timeout_ms) ensures messages are flushed even at low message rates.
+  // Only effective in non-snapshot mode with cache enabled (max_cache_size > 0).
+  // Defaults to true.
+  bool delay = true;
+
+  // Timeout in milliseconds for delayed cache consumption.
+  // When delay is enabled, the consumer thread will wait up to this duration
+  // before flushing messages even if the buffer is not half full.
+  // Defaults to 200ms.
+  uint64_t delay_timeout_ms = 200;
 };
 
 }  // namespace rosbag2_storage

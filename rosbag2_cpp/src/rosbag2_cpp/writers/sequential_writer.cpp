@@ -151,7 +151,7 @@ void SequentialWriter::open(
         storage_options.max_cache_size);
     } else {
       message_cache_ = std::make_shared<rosbag2_cpp::cache::MessageCache>(
-        storage_options.max_cache_size);
+        storage_options.max_cache_size, storage_options.delay, storage_options.delay_timeout_ms);
     }
     cache_consumer_ = std::make_unique<rosbag2_cpp::cache::CacheConsumer>(
       message_cache_,
@@ -336,15 +336,14 @@ void SequentialWriter::write(std::shared_ptr<rosbag2_storage::SerializedBagMessa
   }
 
   // Get TopicInformation handler for counting messages.
-  rosbag2_storage::TopicInformation * topic_information {nullptr};
-  try {
-    topic_information = &topics_names_to_info_.at(message->topic_name);
-  } catch (const std::out_of_range & /* oor */) {
+  auto topic_it = topics_names_to_info_.find(message->topic_name);
+  if (topic_it == topics_names_to_info_.end()) {
     std::stringstream errmsg;
     errmsg << "Failed to write on topic '" << message->topic_name <<
       "'. Call create_topic() before first write.";
     throw std::runtime_error(errmsg.str());
   }
+  rosbag2_storage::TopicInformation * topic_information = &topic_it->second;
 
   const auto message_timestamp = std::chrono::time_point<std::chrono::high_resolution_clock>(
     std::chrono::nanoseconds(message->time_stamp));
@@ -472,8 +471,9 @@ void SequentialWriter::write_messages(
   metadata_.message_count += messages.size();
   std::lock_guard<std::mutex> lock(topics_info_mutex_);
   for (const auto & msg : messages) {
-    if (topics_names_to_info_.find(msg->topic_name) != topics_names_to_info_.end()) {
-      topics_names_to_info_[msg->topic_name].message_count++;
+    auto it = topics_names_to_info_.find(msg->topic_name);
+    if (it != topics_names_to_info_.end()) {
+      it->second.message_count++;
     }
   }
 }

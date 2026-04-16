@@ -26,21 +26,31 @@ namespace cache
 MessageCacheBuffer::MessageCacheBuffer(size_t max_cache_size)
 : max_bytes_size_(max_cache_size)
 {
+  buffer_.reserve(512);
 }
 
 bool MessageCacheBuffer::push(CacheBufferInterface::buffer_element_t msg)
 {
-  bool pushed = false;
-  if (!drop_messages_) {
-    buffer_bytes_size_ += msg->serialized_data->buffer_length;
-    buffer_.push_back(msg);
-    pushed = true;
+  if (drop_messages_) {
+    return false;
   }
+
+  // Check before push to strictly enforce size limit
+  if (max_bytes_size_ > 0 &&
+    !buffer_.empty() &&
+    buffer_bytes_size_ + msg->serialized_data->buffer_length > max_bytes_size_)
+  {
+    drop_messages_ = true;
+    return false;
+  }
+
+  buffer_bytes_size_ += msg->serialized_data->buffer_length;
+  buffer_.push_back(msg);
 
   if (buffer_bytes_size_ >= max_bytes_size_) {
     drop_messages_ = true;
   }
-  return pushed;
+  return true;
 }
 
 void MessageCacheBuffer::clear()

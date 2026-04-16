@@ -28,6 +28,7 @@ namespace cache
 MessageCacheCircularBuffer::MessageCacheCircularBuffer(size_t max_cache_size)
 : max_bytes_size_(max_cache_size)
 {
+  msg_vector_.reserve(512);
 }
 
 bool MessageCacheCircularBuffer::push(CacheBufferInterface::buffer_element_t msg)

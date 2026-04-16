@@ -140,6 +140,19 @@ class RecordVerb(VerbExtension):
                  'the "/rosbag2_recorder/snapshot" service is called.'
         )
         parser.add_argument(
+            '--no-delay', action='store_true',
+            help='Disable delayed cache consumption. By default, when cache is enabled '
+                 '(max_cache_size > 0), the consumer is notified only when the buffer is '
+                 'at least half full, improving write throughput. Use this flag to notify '
+                 'the consumer on every message instead.'
+        )
+        parser.add_argument(
+            '--delay-timeout-ms', type=int, default=200,
+            help='Timeout in milliseconds for delayed cache consumption. When delay is '
+                 'enabled, the consumer thread will wait up to this duration before flushing '
+                 'messages even if the buffer is not half full. Default is 200ms.'
+        )
+        parser.add_argument(
             '--ignore-leaf-topics', action='store_true',
             help='Ignore topics without a publisher.'
         )
@@ -236,7 +249,9 @@ class RecordVerb(VerbExtension):
             max_cache_size=args.max_cache_size,
             storage_preset_profile=args.storage_preset_profile,
             storage_config_uri=storage_config_file,
-            snapshot_mode=args.snapshot_mode
+            snapshot_mode=args.snapshot_mode,
+            delay=not args.no_delay,
+            delay_timeout_ms=args.delay_timeout_ms
         )
         record_options = RecordOptions()
         record_options.all = args.all

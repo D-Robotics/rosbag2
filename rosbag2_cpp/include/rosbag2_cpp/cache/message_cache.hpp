@@ -71,12 +71,12 @@ class ROSBAG2_CPP_PUBLIC MessageCache
   : public MessageCacheInterface
 {
 public:
-  explicit MessageCache(size_t max_buffer_size);
+  explicit MessageCache(size_t max_buffer_size, bool delay = true, uint64_t delay_timeout_ms = 200);
 
   ~MessageCache() override;
 
-  /// Puts msg into primary buffer. With full cache, msg is ignored and counted as lost
-  void push(std::shared_ptr<const rosbag2_storage::SerializedBagMessage> msg) override;
+  /// Puts msg into primary buffer. Returns false if dropped.
+  bool push(std::shared_ptr<const rosbag2_storage::SerializedBagMessage> msg) override;
 
   /// Gets a consumer buffer.
   /// In this greedy implementation, swap buffers before providing the buffer.
@@ -128,6 +128,12 @@ private:
 
   /// Cache is no longer accepting messages and is in the process of flushing
   std::atomic_bool flushing_ {false};
+
+  /// If true, delay consumer notification until buffer is at least half full
+  bool delay_{true};
+
+  /// Timeout in milliseconds for delayed cache consumption
+  uint64_t delay_timeout_ms_{200};
 };
 
 }  // namespace cache

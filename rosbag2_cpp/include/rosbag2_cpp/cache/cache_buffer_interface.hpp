@@ -60,6 +60,20 @@ public:
   virtual size_t size() = 0;
 
   /**
+   *   Get the current byte size of data stored in the buffer.
+   *
+   *   \return cumulative byte size of serialized data in the buffer.
+   */
+  virtual size_t buffer_bytes_size() const = 0;
+
+  /**
+   *   Get the maximum byte size limit of the buffer.
+   *
+   *   \return maximum byte size the buffer can hold.
+   */
+  virtual size_t max_bytes_size() const = 0;
+
+  /**
    *   Get the data/messages stored in the buffer. This should only be
    *   called once no more messages are being added to the buffer.
    *

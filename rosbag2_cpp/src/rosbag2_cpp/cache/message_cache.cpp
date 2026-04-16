@@ -28,7 +28,8 @@ namespace rosbag2_cpp
 namespace cache
 {
 
-MessageCache::MessageCache(size_t max_buffer_size)
+MessageCache::MessageCache(size_t max_buffer_size, bool delay, uint64_t delay_timeout_ms)
+: delay_(delay), delay_timeout_ms_(delay_timeout_ms)
 {
   producer_buffer_ = std::make_shared<MessageCacheBuffer>(max_buffer_size);
   consumer_buffer_ = std::make_shared<MessageCacheBuffer>(max_buffer_size);
@@ -44,7 +45,7 @@ MessageCache::~MessageCache()
   log_dropped();
 }
 
-void MessageCache::push(std::shared_ptr<const rosbag2_storage::SerializedBagMessage> msg)
+bool MessageCache::push(std::shared_ptr<const rosbag2_storage::SerializedBagMessage> msg)
 {
   // While pushing, we keep track of inserted and dropped messages as well
   bool pushed = false;
@@ -53,11 +54,25 @@ void MessageCache::push(std::shared_ptr<const rosbag2_storage::SerializedBagMess
     pushed = producer_buffer_->push(msg);
   }
 
-  if (!pushed) {
+  if (pushed) {
+    if (delay_) {
+      // In delay mode, only notify consumer when buffer is at least half full
+      if (producer_buffer_->buffer_bytes_size() >= producer_buffer_->max_bytes_size() / 2) {
+        notify_data_ready();
+      }
+    } else {
+      notify_data_ready();
+    }
+  } else {
+    // Buffer is full, must notify consumer to drain immediately
     messages_dropped_per_topic_[msg->topic_name]++;
+    ROSBAG2_CPP_LOG_WARN_STREAM(
+      "Message dropped on topic '" << msg->topic_name <<
+      "' because cache buffer is full. Total dropped on this topic: " <<
+      messages_dropped_per_topic_[msg->topic_name]);
+    notify_data_ready();
   }
-
-  notify_data_ready();
+  return pushed;
 }
 
 std::shared_ptr<CacheBufferInterface> MessageCache::get_consumer_buffer()
@@ -84,11 +99,20 @@ void MessageCache::wait_for_data()
 {
   std::unique_lock<std::mutex> producer_lock(producer_buffer_mutex_);
   if (!flushing_) {
-    // Required condition check to protect against spurious wakeups
-    cache_condition_var_.wait(
-      producer_lock, [this] {
-        return data_ready_ || flushing_;
-      });
+    if (delay_) {
+      // Use timeout to avoid unbounded delay in delayed mode
+      // This ensures messages are flushed even at low message rates
+      cache_condition_var_.wait_for(
+        producer_lock,
+        std::chrono::milliseconds(delay_timeout_ms_),
+        [this] { return data_ready_ || flushing_; });
+    } else {
+      // Required condition check to protect against spurious wakeups
+      cache_condition_var_.wait(
+        producer_lock, [this] {
+          return data_ready_ || flushing_;
+        });
+    }
     data_ready_ = false;
   }
 }

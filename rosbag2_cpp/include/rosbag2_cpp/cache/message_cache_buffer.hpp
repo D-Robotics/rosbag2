@@ -64,6 +64,12 @@ public:
   /// Get number of elements in the buffer
   size_t size() override;
 
+  /// Get current byte size of data in the buffer
+  size_t buffer_bytes_size() const override { return buffer_bytes_size_; }
+
+  /// Get maximum byte size limit of the buffer
+  size_t max_bytes_size() const override { return max_bytes_size_; }
+
   /// Get buffer data
   const std::vector<CacheBufferInterface::buffer_element_t> & data() override;
 
