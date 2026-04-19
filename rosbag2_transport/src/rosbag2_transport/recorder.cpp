@@ -371,6 +371,7 @@ void Recorder::subscribe_topic(const rosbag2_storage::TopicMetadata & topic)
   } else {
     writer_->remove_topic(topic);
     subscriptions_.erase(topic.name);
+    topic_callback_groups_.erase(topic.name);
   }
 }
 
@@ -378,6 +379,15 @@ std::shared_ptr<rclcpp::GenericSubscription>
 Recorder::create_subscription(
   const std::string & topic_name, const std::string & topic_type, const rclcpp::QoS & qos)
 {
+  // Create a per-topic callback group to allow concurrent callback execution
+  // across different topics with MultiThreadedExecutor
+  auto callback_group = this->create_callback_group(
+    rclcpp::CallbackGroupType::MutuallyExclusive);
+  topic_callback_groups_[topic_name] = callback_group;
+
+  rclcpp::SubscriptionOptions options;
+  options.callback_group = callback_group;
+
   auto subscription = this->create_generic_subscription(
     topic_name,
     topic_type,
@@ -386,7 +396,8 @@ Recorder::create_subscription(
       if (!paused_.load()) {
         writer_->write(message, topic_name, topic_type, this->get_clock()->now());
       }
-    });
+    },
+    options);
   return subscription;
 }
 

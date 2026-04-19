@@ -200,7 +200,7 @@ public:
 
     try {
       exit_ = false;
-      auto exec = std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
+      auto exec = std::make_unique<rclcpp::executors::MultiThreadedExecutor>();
       if (record_options.rmw_serialization_format.empty()) {
         record_options.rmw_serialization_format = std::string(rmw_get_serialization_format());
       }

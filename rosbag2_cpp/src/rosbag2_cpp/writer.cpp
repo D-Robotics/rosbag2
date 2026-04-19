@@ -107,8 +107,9 @@ void Writer::write(
   tm.name = topic_name;
   tm.type = type_name;
   tm.serialization_format = serialization_format;
-  create_topic(tm);
-  write(message);
+  std::lock_guard<std::mutex> writer_lock(writer_mutex_);
+  writer_impl_->create_topic(tm);
+  writer_impl_->write(message);
 }
 
 void Writer::write(
