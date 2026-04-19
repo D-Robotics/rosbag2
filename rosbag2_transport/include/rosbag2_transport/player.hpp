@@ -31,7 +31,10 @@
 
 #include "rclcpp/node.hpp"
 #include "rclcpp/publisher.hpp"
+#include "rclcpp/exceptions/exceptions.hpp"
 #include "rclcpp/qos.hpp"
+
+#include "rcl/publisher.h"
 
 #include "rosbag2_cpp/clocks/player_clock.hpp"
 #include "rosbag2_interfaces/msg/read_split_event.hpp"
@@ -161,21 +164,24 @@ public:
     explicit PlayerPublisher(
       std::shared_ptr<rclcpp::GenericPublisher> pub,
       bool disable_loan_message)
-    : publisher_(std::move(pub))
-    {
-      using std::placeholders::_1;
-      if (disable_loan_message || !publisher_->can_loan_messages()) {
-        publish_func_ = std::bind(&rclcpp::GenericPublisher::publish, publisher_, _1);
-      } else {
-        publish_func_ = std::bind(&rclcpp::GenericPublisher::publish_as_loaned_msg, publisher_, _1);
-      }
-    }
+    : publisher_(std::move(pub)),
+      disable_loan_message_(disable_loan_message)
+    {}
 
     ~PlayerPublisher() {}
 
-    void publish(const rclcpp::SerializedMessage & message)
+    /// Publish a SerializedBagMessage without intermediate copy.
+    /// Directly calls rcl_publish_serialized_message with the buffer from
+    /// message->serialized_data, skipping the rclcpp::SerializedMessage copy.
+    void publish(rosbag2_storage::SerializedBagMessageSharedPtr message)
     {
-      publish_func_(message);
+      auto ret = rcl_publish_serialized_message(
+        publisher_->get_publisher_handle().get(),
+        message->serialized_data.get(),
+        nullptr);
+      if (ret != RCL_RET_OK) {
+        rclcpp::exceptions::throw_from_rcl_error(ret, "failed to publish serialized message");
+      }
     }
 
     std::shared_ptr<rclcpp::GenericPublisher> generic_publisher()
@@ -185,7 +191,7 @@ public:
 
 private:
     std::shared_ptr<rclcpp::GenericPublisher> publisher_;
-    std::function<void(const rclcpp::SerializedMessage &)> publish_func_;
+    bool disable_loan_message_;
   };
   bool is_ready_to_play_from_queue_{false};
   std::mutex ready_to_play_from_queue_mutex_;

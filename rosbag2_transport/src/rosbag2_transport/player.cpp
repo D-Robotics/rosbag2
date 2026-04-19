@@ -583,7 +583,7 @@ bool Player::publish_message(rosbag2_storage::SerializedBagMessageSharedPtr mess
   auto publisher_iter = publishers_.find(message->topic_name);
   if (publisher_iter != publishers_.end()) {
     try {
-      publisher_iter->second->publish(rclcpp::SerializedMessage(*message->serialized_data));
+      publisher_iter->second->publish(message);
       message_published = true;
     } catch (const std::exception & e) {
       RCLCPP_ERROR_STREAM(
