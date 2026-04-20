@@ -161,6 +161,14 @@ class RecordVerb(VerbExtension):
             help='Path to a yaml file defining overrides of the QoS profile for specific topics.'
         )
         parser.add_argument(
+            '--record-config', type=FileType('r'),
+            help='Path to a yaml file defining recording configuration, including topics '
+                 'and their QoS profiles. Format: topics: {topic_name: {reliability: ..., '
+                 'durability: ..., history: ..., depth: ...}}. Topics from this file are '
+                 'merged with topics specified on the command line. QoS profiles from this '
+                 'file are merged with --qos-profile-overrides-path.'
+        )
+        parser.add_argument(
             '--storage-preset-profile', type=str, default='',
             help='Select a configuration preset for storage. '
                  'This flag settings can still be overriden by '
@@ -187,6 +195,40 @@ class RecordVerb(VerbExtension):
         self._subparser = parser
 
     def main(self, *, args):  # noqa: D102
+        # Parse --record-config first, to know which topics and QoS it provides
+        config_topics = []
+        config_qos_overrides = {}
+        if args.record_config:
+            record_config_dict = yaml.safe_load(args.record_config)
+            if record_config_dict is None:
+                record_config_dict = {}
+            if not isinstance(record_config_dict, dict):
+                return print_error('--record-config file must be a YAML mapping')
+            # Parse topics section
+            topics_section = record_config_dict.get('topics', {})
+            if topics_section is not None:
+                if not isinstance(topics_section, dict):
+                    return print_error('--record-config "topics" must be a YAML mapping of topic: qos_profile')
+                for topic, profile in topics_section.items():
+                    config_topics.append(topic)
+                    if profile is not None:
+                        try:
+                            config_qos_overrides[topic] = convert_yaml_to_qos_profile(
+                                {topic: profile})[topic]
+                        except (InvalidQoSProfileException, ValueError) as e:
+                            return print_error(f'Invalid QoS for topic "{topic}" in --record-config: {e}')
+
+        # Merge config_topics into args.topics
+        if config_topics:
+            if args.all:
+                return print_error('Cannot use --all together with --record-config.')
+            if args.topics:
+                # Merge, avoiding duplicates
+                merged = list(args.topics) + [t for t in config_topics if t not in args.topics]
+                args.topics = merged
+            else:
+                args.topics = config_topics
+
         # both all and topics cannot be true
         if (args.all and args.topics):
             return print_error('Specify either --all or topics, but not both simultaneously.')
@@ -231,6 +273,10 @@ class RecordVerb(VerbExtension):
                     qos_profile_dict)
             except (InvalidQoSProfileException, ValueError) as e:
                 return print_error(str(e))
+
+        # Merge QoS from --record-config (record-config takes precedence for overlapping topics)
+        for topic, profile in config_qos_overrides.items():
+            qos_profile_overrides[topic] = profile
 
         if args.use_sim_time and args.no_discovery:
             return print_error(
