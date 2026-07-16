@@ -14,6 +14,7 @@
   <buildtool_depend>ament_cmake_ros</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
   <depend>rosbag2_compression</depend>
   <depend>rosbag2_cpp</depend>
   <depend>rosbag2_interfaces</depend>
@@ -33,6 +34,9 @@
   <test_depend>rosbag2_storage_default_plugins</test_depend>
   <test_depend>rosbag2_storage_mcap</test_depend>
   <test_depend>test_msgs</test_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

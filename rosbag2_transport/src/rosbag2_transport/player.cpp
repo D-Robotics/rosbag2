@@ -19,6 +19,7 @@
 #include <memory>
 #include <queue>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -35,7 +36,9 @@
 
 #include "rosbag2_storage/storage_filter.hpp"
 
+#include "rosbag2_transport/config_options_from_node_params.hpp"
 #include "rosbag2_transport/qos.hpp"
+#include "rosbag2_transport/reader_writer_factory.hpp"
 
 namespace
 {
@@ -88,13 +91,85 @@ rclcpp::QoS publisher_qos_for_topic(
 namespace rosbag2_transport
 {
 
+Player::Player(const rclcpp::NodeOptions & node_options)
+: Player("rosbag2_player", node_options) {}
+
 Player::Player(const std::string & node_name, const rclcpp::NodeOptions & node_options)
 : rclcpp::Node(node_name, node_options)
 {
-  // TODO(karsten1987): Use this constructor later with parameter parsing.
-  // The reader, storage_options as well as play_options can be loaded via parameter.
-  // That way, the player can be used as a simple component in a component manager.
-  throw rclcpp::exceptions::UnimplementedError();
+  // Composable player entry point: build storage and play options from node parameters, then run
+  // the same init() the CLI constructor uses, then launch playback on a background thread so the
+  // constructor returns immediately (play() is otherwise blocking and would hang the component
+  // container's load callback).
+  rosbag2_storage::StorageOptions storage_options =
+    rosbag2_transport::get_storage_options_from_node_params(*this);
+  rosbag2_transport::PlayOptions play_options =
+    rosbag2_transport::get_play_options_from_node_params(*this);
+
+  // Topic remappings: when used as a component, supply remappings via the standard
+  // `--ros-args -r` mechanism (handled by the container) rather than the play_options list.
+  // Use ReaderWriterFactory::make_reader so a compressed bag (e.g. zstd) selects the
+  // SequentialCompressionReader; a plain Reader() cannot decompress. make_reader reads metadata
+  // once to pick the impl, then init()'s reader_->open() opens the storage -- the CLI path does
+  // exactly this and works, so the double metadata read is benign.
+
+  storage_options_ = std::move(storage_options);
+  play_options_ = std::move(play_options);
+#ifndef _WIN32
+  keyboard_handler_ = play_options_.disable_keyboard_controls
+    ? nullptr : std::make_shared<KeyboardHandler>(false);
+#else
+  keyboard_handler_ = play_options_.disable_keyboard_controls
+    ? nullptr : std::shared_ptr<KeyboardHandler>(new KeyboardHandler());
+#endif
+
+  init(rosbag2_transport::ReaderWriterFactory::make_reader(storage_options_));
+  create_control_services();
+  if (keyboard_handler_) {
+    add_keyboard_callbacks();
+  }
+
+  // Run the (blocking) play() loop on a background thread so this constructor returns promptly.
+  // play() catches its own runtime_errors internally, so it will not throw out of this thread.
+  // The destructor joins play_thread_ to ensure the loop has stopped before members are torn down.
+  play_thread_ = std::thread([this]() {
+    try {
+      play();
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR_STREAM(get_logger(), "Playback thread exited with error: " << e.what());
+    } catch (...) {
+      RCLCPP_ERROR_STREAM(get_logger(), "Playback thread exited with unknown error.");
+    }
+  });
+}
+
+void Player::init(std::unique_ptr<rosbag2_cpp::Reader> reader)
+{
+  std::lock_guard<std::mutex> lk(reader_mutex_);
+  reader_ = std::move(reader);
+  // keep reader open until player is destroyed
+  reader_->open(storage_options_, {"", rmw_get_serialization_format()});
+  auto metadata = reader_->get_metadata();
+  starting_time_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
+    metadata.starting_time.time_since_epoch()).count();
+  // If a non-default (positive) starting time offset is provided in PlayOptions,
+  // then add the offset to the starting time obtained from reader metadata. A negative offset
+  // is ignored (kept as-is in play_options_ so get_play_options() reflects the user's input).
+  if (play_options_.start_offset < 0) {
+    RCLCPP_WARN_STREAM(
+      get_logger(),
+      "Invalid start offset value: " <<
+        RCUTILS_NS_TO_S(static_cast<double>(play_options_.start_offset)) <<
+        ". Negative start offset ignored.");
+  } else {
+    starting_time_ += play_options_.start_offset;
+  }
+  clock_ = std::make_unique<rosbag2_cpp::TimeControllerClock>(
+    starting_time_, std::chrono::steady_clock::now,
+    std::chrono::milliseconds{100}, play_options_.start_paused);
+  set_rate(play_options_.rate);
+  topic_qos_profile_overrides_ = play_options_.topic_qos_profile_overrides;
+  prepare_publishers();
 }
 
 Player::Player(
@@ -102,7 +177,7 @@ Player::Player(
   const rosbag2_transport::PlayOptions & play_options,
   const std::string & node_name,
   const rclcpp::NodeOptions & node_options)
-: Player(std::make_unique<rosbag2_cpp::Reader>(),
+: Player(rosbag2_transport::ReaderWriterFactory::make_reader(storage_options),
     storage_options, play_options,
     node_name, node_options)
 {}
@@ -139,42 +214,32 @@ Player::Player(
   play_options_(play_options),
   keyboard_handler_(keyboard_handler)
 {
-  {
-    std::lock_guard<std::mutex> lk(reader_mutex_);
-    reader_ = std::move(reader);
-    // keep reader open until player is destroyed
-    reader_->open(storage_options_, {"", rmw_get_serialization_format()});
-    auto metadata = reader_->get_metadata();
-    starting_time_ = std::chrono::duration_cast<std::chrono::nanoseconds>(
-      metadata.starting_time.time_since_epoch()).count();
-    // If a non-default (positive) starting time offset is provided in PlayOptions,
-    // then add the offset to the starting time obtained from reader metadata
-    if (play_options_.start_offset < 0) {
-      RCLCPP_WARN_STREAM(
-        get_logger(),
-        "Invalid start offset value: " <<
-          RCUTILS_NS_TO_S(static_cast<double>(play_options_.start_offset)) <<
-          ". Negative start offset ignored.");
-    } else {
-      starting_time_ += play_options_.start_offset;
-    }
-    clock_ = std::make_unique<rosbag2_cpp::TimeControllerClock>(
-      starting_time_, std::chrono::steady_clock::now,
-      std::chrono::milliseconds{100}, play_options_.start_paused);
-    set_rate(play_options_.rate);
-    topic_qos_profile_overrides_ = play_options_.topic_qos_profile_overrides;
-    prepare_publishers();
-  }
+  init(std::move(reader));
   create_control_services();
   add_keyboard_callbacks();
 }
 
 Player::~Player()
 {
+  // Signal the background play loop to stop. Setting the atomics alone is not enough: play() may
+  // be parked in clock_->sleep_until() -> TimeControllerClock cv.wait_until(), whose cv is only
+  // notified by pause()/resume()/jump()/set_rate(). Pausing the clock notifies that cv, switching
+  // sleep_until to a bounded 100ms wait and letting the loop re-check stop_playback_ promptly.
+  stop_playback_.store(true);
+  cancel_wait_for_next_message_.store(true);
+  if (clock_) {
+    clock_->pause();  // wake any cv.wait_until parked in the play loop
+  }
+  if (play_thread_.joinable()) {
+    play_thread_.join();
+  }
+
   // remove callbacks on key_codes to prevent race conditions
   // Note: keyboard_handler handles locks between removing & executing callbacks
-  for (auto cb_handle : keyboard_callbacks_) {
-    keyboard_handler_->delete_key_press_callback(cb_handle);
+  if (keyboard_handler_) {
+    for (auto cb_handle : keyboard_callbacks_) {
+      keyboard_handler_->delete_key_press_callback(cb_handle);
+    }
   }
   // closes reader
   std::lock_guard<std::mutex> lk(reader_mutex_);
@@ -212,7 +277,19 @@ void Player::play()
       if (delay > rclcpp::Duration(0, 0)) {
         RCLCPP_INFO_STREAM(get_logger(), "Sleep " << delay.nanoseconds() << " ns");
         std::chrono::nanoseconds duration(delay.nanoseconds());
-        std::this_thread::sleep_for(duration);
+        // Sleep in small slices so a stop requested during the pre-playback delay is observed
+        // promptly instead of blocking the destructor's join for the full delay.
+        const auto slice = std::chrono::milliseconds(100);
+        auto remaining = duration;
+        while (remaining > std::chrono::nanoseconds(0) &&
+          rclcpp::ok() && !stop_playback_.load())
+        {
+          std::this_thread::sleep_for(remaining < slice ? remaining : slice);
+          remaining -= std::min(remaining, std::chrono::nanoseconds(slice));
+        }
+        if (stop_playback_.load()) {
+          break;
+        }
       }
       {
         std::lock_guard<std::mutex> lk(reader_mutex_);
@@ -227,7 +304,7 @@ void Player::play()
         is_ready_to_play_from_queue_ = false;
         ready_to_play_from_queue_cv_.notify_all();
       }
-    } while (rclcpp::ok() && play_options_.loop);
+    } while (rclcpp::ok() && play_options_.loop && !stop_playback_.load());
   } catch (std::runtime_error & e) {
     RCLCPP_ERROR(get_logger(), "Failed to play: %s", e.what());
   }
@@ -410,7 +487,7 @@ void Player::wait_for_filled_queue() const
 {
   while (
     message_queue_.size_approx() < play_options_.read_ahead_queue_size &&
-    !is_storage_completely_loaded() && rclcpp::ok())
+    !is_storage_completely_loaded() && rclcpp::ok() && !stop_playback_.load())
   {
     std::this_thread::sleep_for(queue_read_wait_period_);
   }
@@ -422,7 +499,7 @@ void Player::load_storage_content()
     static_cast<size_t>(play_options_.read_ahead_queue_size * read_ahead_lower_bound_percentage_);
   auto queue_upper_boundary = play_options_.read_ahead_queue_size;
 
-  while (rclcpp::ok()) {
+  while (rclcpp::ok() && !stop_playback_.load()) {
     TSAUniqueLock lk(reader_mutex_);
     if (!reader_->has_next()) {break;}
 
@@ -460,13 +537,16 @@ void Player::play_messages_from_queue()
     is_ready_to_play_from_queue_ = true;
     ready_to_play_from_queue_cv_.notify_all();
   }
-  while (message_ptr != nullptr && rclcpp::ok()) {
+  while (message_ptr != nullptr && rclcpp::ok() && !stop_playback_.load()) {
     // Do not move on until sleep_until returns true
     // It will always sleep, so this is not a tight busy loop on pause
-    while (rclcpp::ok() && !clock_->sleep_until(message_ptr->time_stamp)) {
+    while (rclcpp::ok() && !stop_playback_.load() && !clock_->sleep_until(message_ptr->time_stamp)) {
       if (std::atomic_exchange(&cancel_wait_for_next_message_, false)) {
         break;
       }
+    }
+    if (stop_playback_.load()) {
+      break;
     }
     std::lock_guard<std::mutex> lk(skip_message_in_main_play_loop_mutex_);
     if (rclcpp::ok()) {
@@ -483,7 +563,7 @@ void Player::play_messages_from_queue()
   }
   // while we're in pause state, make sure we don't return
   // if we happen to be at the end of queue
-  while (is_paused() && rclcpp::ok()) {
+  while (is_paused() && rclcpp::ok() && !stop_playback_.load()) {
     clock_->sleep_until(clock_->now());
   }
 }
@@ -637,12 +717,12 @@ void Player::add_keyboard_callbacks()
   );
   add_key_callback(
     play_options_.increase_rate_key,
-    [this]() {set_rate(get_rate() + 0.1);},
+    [this]() {set_rate(get_rate() * 1.1);},
     "Increase Rate 10%"
   );
   add_key_callback(
     play_options_.decrease_rate_key,
-    [this]() {set_rate(get_rate() - 0.1);},
+    [this]() {set_rate(std::max(0.01, get_rate() * 0.9));},
     "Decrease Rate 10%"
   );
 }
@@ -725,3 +805,10 @@ void Player::create_control_services()
 }
 
 }  // namespace rosbag2_transport
+
+#include "rclcpp_components/register_node_macro.hpp"
+
+// Register the component with class_loader.
+// This acts as a sort of entry point, allowing the component to be
+// discoverable when its library is being loaded into a running process.
+RCLCPP_COMPONENTS_REGISTER_NODE(rosbag2_transport::Player)
