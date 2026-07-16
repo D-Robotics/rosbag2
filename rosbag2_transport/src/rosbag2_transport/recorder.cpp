@@ -33,7 +33,9 @@
 #include "rosbag2_interfaces/srv/snapshot.hpp"
 
 #include "rosbag2_storage/yaml.hpp"
+#include "rosbag2_transport/config_options_from_node_params.hpp"
 #include "rosbag2_transport/qos.hpp"
+#include "rosbag2_transport/reader_writer_factory.hpp"
 
 #include "topic_filter.hpp"
 
@@ -41,14 +43,95 @@ namespace rosbag2_transport
 {
 
 Recorder::Recorder(
+  const rclcpp::NodeOptions & node_options)
+: Recorder("rosbag2_recorder", node_options) {}
+
+Recorder::Recorder(
   const std::string & node_name,
   const rclcpp::NodeOptions & node_options)
-: rclcpp::Node(node_name, node_options)
+: rclcpp::Node(node_name, rclcpp::NodeOptions(node_options)
+    .start_parameter_event_publisher(false))
 {
-  // TODO(karsten1987): Use this constructor later with parameter parsing.
-  // The reader, storage_options as well as record_options can be loaded via parameter.
-  // That way, the recorder can be used as a simple component in a component manager.
-  throw rclcpp::exceptions::UnimplementedError();
+  // Composable recorder entry point: build storage and record options from node parameters,
+  // then delegate the rest of the setup to the same path used by the CLI constructor.
+  rosbag2_storage::StorageOptions storage_options =
+    rosbag2_transport::get_storage_options_from_node_params(*this);
+  rosbag2_transport::RecordOptions record_options =
+    rosbag2_transport::get_record_options_from_node_params(*this);
+
+  // Default to the rmw serialization format in use when none was specified via parameter.
+  if (record_options.rmw_serialization_format.empty()) {
+    record_options.rmw_serialization_format = std::string(rmw_get_serialization_format());
+  }
+
+  // Validate the same incompatible combinations the CLI checks for. Throws
+  // std::invalid_argument / std::runtime_error with a clear message so a bad component load
+  // fails up front rather than inside writer->open().
+  validate_composable_options(storage_options, record_options);
+
+  // NOTE: use_sim_time is handled by rclcpp's TimeSource at Node construction time.
+  // The TimeSource reads the 'use_sim_time' parameter override from node_options at attachNode()
+  // and switches the clock synchronously — NO post-construction set_parameter() is needed or
+  // effective (rclcpp humble's TimeSource listens via /parameter_events, which is suppressed when
+  // start_parameter_event_publisher=false). Users who want sim time must pass
+  //   use_sim_time: true
+  // as a component parameter override (via -p or launch parameters), which will be present in
+  // node_options and picked up by TimeSource at construction. This matches the standard ROS 2
+  // composable node pattern.
+
+  auto writer = rosbag2_transport::ReaderWriterFactory::make_writer(record_options);
+#ifndef _WIN32
+  auto keyboard_handler = std::make_shared<KeyboardHandler>(false);
+#else
+  // We don't have signal handler option in constructor for windows version
+  auto keyboard_handler = std::shared_ptr<KeyboardHandler>(new KeyboardHandler());
+#endif
+
+  // Mirror the member initialization performed by the four-argument constructor.
+  writer_ = std::move(writer);
+  storage_options_ = std::move(storage_options);
+  record_options_ = std::move(record_options);
+  stop_discovery_ = record_options_.is_discovery_disabled;
+  paused_ = record_options_.start_paused;
+  keyboard_handler_ = std::move(keyboard_handler);
+
+  std::string key_str = enum_key_code_to_str(Recorder::kPauseResumeToggleKey);
+  toggle_paused_key_callback_handle_ =
+    keyboard_handler_->add_key_press_callback(
+    [this](KeyboardHandler::KeyCode /*key_code*/,
+    KeyboardHandler::KeyModifiers /*key_modifiers*/) {this->toggle_paused();},
+    Recorder::kPauseResumeToggleKey);
+  // show instructions
+  RCLCPP_INFO_STREAM(
+    get_logger(),
+    "Press " << key_str << " for pausing/resuming");
+
+  for (auto & topic : record_options_.topics) {
+    topic = rclcpp::expand_topic_or_service_name(topic, get_name(), get_namespace(), false);
+  }
+
+  // Automatically start recording, mirroring the kilted/jazzy composable recorder behavior.
+  // If record() throws after starting the event publisher thread, the Recorder destructor
+  // would NOT run (constructor threw), leaking the thread. Wrap it so we stop() cleanly first.
+  // Note: event_publisher_thread_should_exit_ defaults to false and record() also resets it to
+  // false at its first line, so !flag is always true here — the guard cannot distinguish
+  // "thread started" from "never started". This is safe: stop() checks
+  // event_publisher_thread_.joinable() before joining, and writer_->close() is idempotent
+  // on a never-opened writer (SequentialWriter guards on base_folder_/storage_ being non-null).
+  try {
+    record();
+  } catch (...) {
+    if (!event_publisher_thread_should_exit_) {
+      // record() may have started the event publisher thread — clean up so it is not leaked.
+      try {
+        stop();
+      } catch (const std::exception & e) {
+        RCLCPP_ERROR_STREAM(
+          get_logger(), "Error during cleanup after failed record(): " << e.what());
+      }
+    }
+    throw;
+  }
 }
 
 Recorder::Recorder(
@@ -112,8 +195,57 @@ Recorder::Recorder(
 
 Recorder::~Recorder()
 {
-  keyboard_handler_->delete_key_press_callback(toggle_paused_key_callback_handle_);
+  if (keyboard_handler_) {
+    keyboard_handler_->delete_key_press_callback(toggle_paused_key_callback_handle_);
+  }
   stop();
+}
+
+void Recorder::validate_composable_options(
+  const rosbag2_storage::StorageOptions & storage_options,
+  const rosbag2_transport::RecordOptions & record_options) const
+{
+  if (record_options.use_sim_time && record_options.is_discovery_disabled) {
+    throw std::runtime_error(
+            "use_sim_time and is_discovery_disabled both set, but are incompatible settings. "
+            "The /clock topic needs to be discovered to record with sim time.");
+  }
+  // Validate mutually exclusive option combinations, matching `ros2 bag record` behavior.
+  if (record_options.all && !record_options.topics.empty()) {
+    throw std::invalid_argument(
+            "Specify either 'all' or 'topics', but not both simultaneously.");
+  }
+  if (record_options.all && !record_options.regex.empty()) {
+    RCLCPP_WARN(
+      get_logger(), "'all' will override 'regex' (same as `ros2 bag record -a -e`).");
+  }
+  if (!record_options.exclude.empty() && !record_options.topics.empty()) {
+    throw std::invalid_argument(
+            "'exclude' cannot be used when specifying a list of 'topics' explicitly.");
+  }
+  if (!record_options.exclude.empty() &&
+    !(record_options.all || !record_options.regex.empty()))
+  {
+    throw std::invalid_argument(
+            "'exclude' requires either 'all' or 'regex'.");
+  }
+  if (!record_options.all && record_options.topics.empty() && record_options.regex.empty()) {
+    throw std::invalid_argument(
+            "Must specify 'all', 'topics', or 'regex' (at least one).");
+  }
+  // snapshot_mode requires a non-zero max_cache_size; reject early with a clear message instead
+  // of letting writer->open() throw an opaque one.
+  if (storage_options.snapshot_mode && storage_options.max_cache_size == 0) {
+    throw std::invalid_argument(
+            "snapshot_mode requires max_cache_size > 0.");
+  }
+  // compression_format without a compression_mode is silently ignored by the writer factory
+  // (CompressionMode::NONE), matching the CLI guard in record.py.
+  if (!record_options.compression_format.empty() && record_options.compression_mode.empty()) {
+    throw std::invalid_argument(
+            "'compression_format' is set but 'compression_mode' is empty. "
+            "Set compression_mode to 'file' or 'message' to enable compression.");
+  }
 }
 
 void Recorder::stop()
@@ -467,3 +599,10 @@ void Recorder::warn_if_new_qos_for_subscribed_topic(const std::string & topic_na
 }
 
 }  // namespace rosbag2_transport
+
+#include "rclcpp_components/register_node_macro.hpp"
+
+// Register the component with class_loader.
+// This acts as a sort of entry point, allowing the component to be
+// discoverable when its library is being loaded into a running process.
+RCLCPP_COMPONENTS_REGISTER_NODE(rosbag2_transport::Recorder)

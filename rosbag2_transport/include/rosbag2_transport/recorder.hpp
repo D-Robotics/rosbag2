@@ -52,6 +52,10 @@ class Recorder : public rclcpp::Node
 public:
   ROSBAG2_TRANSPORT_PUBLIC
   explicit Recorder(
+    const rclcpp::NodeOptions & node_options = rclcpp::NodeOptions());
+
+  ROSBAG2_TRANSPORT_PUBLIC
+  explicit Recorder(
     const std::string & node_name = "rosbag2_recorder",
     const rclcpp::NodeOptions & node_options = rclcpp::NodeOptions());
 
@@ -99,6 +103,22 @@ public:
   ROSBAG2_TRANSPORT_PUBLIC
   const rosbag2_cpp::Writer & get_writer_handle();
 
+  /// Read-only access to the storage options in use. Populated either from the explicit
+  /// constructor arguments or from node parameters when used as a composable node.
+  ROSBAG2_TRANSPORT_PUBLIC
+  const rosbag2_storage::StorageOptions & get_storage_options() const
+  {
+    return storage_options_;
+  }
+
+  /// Read-only access to the record options in use. Populated either from the explicit
+  /// constructor arguments or from node parameters when used as a composable node.
+  ROSBAG2_TRANSPORT_PUBLIC
+  const rosbag2_transport::RecordOptions & get_record_options() const
+  {
+    return record_options_;
+  }
+
   /// @brief Pause the recording.
   /// @details Will keep writer open and skip messages upon arrival on subscriptions.
   ROSBAG2_TRANSPORT_PUBLIC
@@ -128,6 +148,14 @@ protected:
 
 private:
   void topics_discovery();
+
+  // Validate the storage/record option combinations a composable Recorder is loaded with. Mirrors
+  // the mutual-exclusion checks performed by `ros2 bag record` (record.py) so a component load
+  // with an invalid combination is rejected up front with a clear message rather than failing
+  // later inside writer->open(). Centralized here so there is one place to keep in sync.
+  void validate_composable_options(
+    const rosbag2_storage::StorageOptions & storage_options,
+    const rosbag2_transport::RecordOptions & record_options) const;
 
   std::unordered_map<std::string, std::string>
   get_missing_topics(const std::unordered_map<std::string, std::string> & all_topics);

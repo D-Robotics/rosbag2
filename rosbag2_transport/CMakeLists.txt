@@ -26,6 +26,7 @@ find_package(ament_cmake_ros REQUIRED)
 find_package(keyboard_handler REQUIRED)
 find_package(rcl REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(rmw REQUIRED)
 find_package(rosbag2_compression REQUIRED)
@@ -38,6 +39,7 @@ find_package(yaml_cpp_vendor REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/rosbag2_transport/bag_rewrite.cpp
+  src/rosbag2_transport/config_options_from_node_params.cpp
   src/rosbag2_transport/player.cpp
   src/rosbag2_transport/qos.cpp
   src/rosbag2_transport/reader_writer_factory.cpp
@@ -51,6 +53,7 @@ ament_target_dependencies(${PROJECT_NAME}
   keyboard_handler
   rcl
   rclcpp
+  rclcpp_components
   rcutils
   rmw
   rosbag2_compression
@@ -60,6 +63,18 @@ ament_target_dependencies(${PROJECT_NAME}
   shared_queues_vendor
   yaml_cpp_vendor
 )
+
+# Register the Recorder as a composable node so it can be loaded into a component_container.
+rclcpp_components_register_node(
+  ${PROJECT_NAME}
+  PLUGIN "rosbag2_transport::Recorder"
+  EXECUTABLE recorder_component)
+
+# Register the Player as a composable node so it can be loaded into a component_container.
+rclcpp_components_register_node(
+  ${PROJECT_NAME}
+  PLUGIN "rosbag2_transport::Player"
+  EXECUTABLE player_component)
 
 # Causes the visibility macros to use dllexport rather than dllimport,
 # which is appropriate when building the dll but not consuming it.
@@ -76,6 +91,11 @@ install(
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+)
 
 # Export old-style CMake variables
 ament_export_include_directories("include/${PROJECT_NAME}")
@@ -86,6 +106,7 @@ ament_export_targets(export_${PROJECT_NAME})
 
 ament_export_dependencies(
   keyboard_handler
+  rclcpp_components
   rosbag2_cpp
   rosbag2_compression
   rosbag2_interfaces
@@ -205,10 +226,6 @@ function(create_tests_for_rmw_implementation)
     LINK_LIBS rosbag2_transport
     AMENT_DEPS test_msgs rosbag2_test_common)
 
-  rosbag2_transport_add_gmock(test_component_parameters
-      test/rosbag2_transport/test_composable_recorder.cpp
-    LINK_LIBS rosbag2_transport
-    AMENT_DEPS test_msgs rosbag2_test_common)
 
   if(${rmw_implementation} MATCHES "rmw_cyclonedds(.*)")
     ament_add_test_label(test_play_services__rmw_cyclonedds_cpp xfail)

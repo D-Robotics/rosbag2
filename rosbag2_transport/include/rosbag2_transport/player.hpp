@@ -67,6 +67,10 @@ class Player : public rclcpp::Node
 public:
   ROSBAG2_TRANSPORT_PUBLIC
   explicit Player(
+    const rclcpp::NodeOptions & node_options = rclcpp::NodeOptions());
+
+  ROSBAG2_TRANSPORT_PUBLIC
+  explicit Player(
     const std::string & node_name = "rosbag2_player",
     const rclcpp::NodeOptions & node_options = rclcpp::NodeOptions());
 
@@ -99,6 +103,22 @@ public:
 
   ROSBAG2_TRANSPORT_PUBLIC
   void play();
+
+  /// Read-only access to the storage options in use. Populated either from the explicit
+  /// constructor arguments or from node parameters when used as a composable node.
+  ROSBAG2_TRANSPORT_PUBLIC
+  const rosbag2_storage::StorageOptions & get_storage_options() const
+  {
+    return storage_options_;
+  }
+
+  /// Read-only access to the play options in use. Populated either from the explicit
+  /// constructor arguments or from node parameters when used as a composable node.
+  ROSBAG2_TRANSPORT_PUBLIC
+  const rosbag2_transport::PlayOptions & get_play_options() const
+  {
+    return play_options_;
+  }
 
   // Playback control interface
   /// Pause the flow of time for playback.
@@ -170,9 +190,15 @@ public:
 
     ~PlayerPublisher() {}
 
-    /// Publish a SerializedBagMessage without intermediate copy.
-    /// Directly calls rcl_publish_serialized_message with the buffer from
-    /// message->serialized_data, skipping the rclcpp::SerializedMessage copy.
+    /// Publish a SerializedBagMessage.
+    /// Calls rcl_publish_serialized_message directly regardless of disable_loan_message_.
+    ///
+    /// The loaned-message path (publish_as_loaned_msg) was considered but not used:
+    /// rclcpp::SerializedMessage(const rcl_serialized_message_t&) performs a deep copy
+    /// (heap-alloc + memcpy), so routing through publish_as_loaned_msg would incur an extra
+    /// copy with no benefit. GenericPublisher also does not support intra-process delivery for
+    /// serialized messages (it calls rcl_publish_serialized_message internally anyway).
+    /// disable_loan_message_ is retained in the constructor signature for API compatibility.
     void publish(rosbag2_storage::SerializedBagMessageSharedPtr message)
     {
       auto ret = rcl_publish_serialized_message(
@@ -208,9 +234,23 @@ private:
   void play_messages_from_queue();
   void prepare_publishers();
   bool publish_message(rosbag2_storage::SerializedBagMessageSharedPtr message);
+
+  /// Open the reader, read bag metadata, build the clock, and create publishers. Shared by the
+  /// composable constructor and the explicit-argument constructors so init logic lives once.
+  void init(std::unique_ptr<rosbag2_cpp::Reader> reader);
+
   static constexpr double read_ahead_lower_bound_percentage_ = 0.9;
   static const std::chrono::milliseconds queue_read_wait_period_;
   std::atomic_bool cancel_wait_for_next_message_{false};
+
+  // Set to true by the destructor to tell the background play_thread_ to stop its loop (covers
+  // the loop=true case where play() would otherwise never exit on its own).
+  std::atomic_bool stop_playback_{false};
+
+  // Background thread running the (blocking) play() loop when the Player is used as a composable
+  // node, so the constructor returns immediately instead of blocking the component container's
+  // load callback. Joined in the destructor.
+  std::thread play_thread_;
 
   std::mutex reader_mutex_;
   std::unique_ptr<rosbag2_cpp::Reader> reader_ RCPPUTILS_TSA_GUARDED_BY(reader_mutex_);
