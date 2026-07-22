@@ -33,7 +33,7 @@ import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import ComposableNodeContainer
+from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes
 from launch_ros.descriptions import ComposableNode
 
 
@@ -42,7 +42,11 @@ def _to_bool(s):
 
 
 def _build_container(context, *args, **kwargs):
-    """Build the ComposableNodeContainer, injecting `topics` only when set non-empty.
+    """Build either a ComposableNodeContainer or a LoadComposableNodes action.
+
+    When `container_name` is set (non-empty), the Recorder is loaded into an
+    already-running container with that name via LoadComposableNodes. When
+    empty, a fresh container is spawned with ComposableNodeContainer.
 
     The Recorder declares `topics` as a string-array with an empty default. launch_ros rejects
     an empty sequence passed as a parameter, so we omit the key entirely when the user did not
@@ -62,6 +66,7 @@ def _build_container(context, *args, **kwargs):
     no_discovery = _to_bool(LaunchConfiguration('no_discovery').perform(context))
     delay = int(_to_bool(LaunchConfiguration('delay').perform(context)))
     container_exec = LaunchConfiguration('container_executable').perform(context)
+    container_name = LaunchConfiguration('container_name').perform(context).strip()
 
     topics_list = yaml.safe_load(topics_raw) if topics_raw else []
     if not isinstance(topics_list, list):
@@ -91,19 +96,26 @@ def _build_container(context, *args, **kwargs):
     if topics_list:  # only inject when non-empty; launch_ros rejects empty sequences
         parameters['topics'] = topics_list
 
+    recorder_node = ComposableNode(
+        package='rosbag2_transport',
+        plugin='rosbag2_transport::Recorder',
+        name='rosbag2_recorder',
+        parameters=[parameters],
+    )
+
+    if container_name:
+        # Load into an existing container (e.g. tros_container from bringup)
+        return [LoadComposableNodes(
+            target_container=container_name,
+            composable_node_descriptions=[recorder_node],
+        )]
+
     return [ComposableNodeContainer(
         package='rclcpp_components',
         executable=container_exec,
         name='rosbag2_recorder_container',
         namespace='',
-        composable_node_descriptions=[
-            ComposableNode(
-                package='rosbag2_transport',
-                plugin='rosbag2_transport::Recorder',
-                name='rosbag2_recorder',
-                parameters=[parameters],
-            ),
-        ],
+        composable_node_descriptions=[recorder_node],
         output='screen',
     )]
 
@@ -136,9 +148,15 @@ def generate_launch_description():
                               description='Enable delayed cache consumption (d-robotics perf '
                                           'optimization). Set to false to flush on every message.'),
         DeclareLaunchArgument('container_executable', default_value='component_container_mt',
-                              description='Component container executable. Use component_container_mt '
+                              description='Component container executable. Used only when '
+                                          'container_name is empty. Use component_container_mt '
                                           '(default) or component_container_isolated - the single-threaded '
                                           'component_container has a known unload race that can crash on '
                                           'ros2 component unload.'),
+        DeclareLaunchArgument('container_name', default_value='',
+                              description='Existing container name to load the Recorder into. '
+                                          'When set (non-empty), uses LoadComposableNodes against that '
+                                          'container instead of spawning a new ComposableNodeContainer. '
+                                          'Empty (default) spawns a dedicated rosbag2_recorder_container.'),
         OpaqueFunction(function=_build_container),
     ])

@@ -13,9 +13,9 @@ include(ExternalProject)
 ExternalProject_Add(ext-singleproducerconsumer
   PREFIX singleproducerconsumer
   DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/download
-  URL https://github.com/cameron314/readerwriterqueue/archive/ef7dfbf553288064347d51b8ac335f1ca489032a.zip
+  URL https://ghfast.top/https://github.com/cameron314/readerwriterqueue/archive/ef7dfbf553288064347d51b8ac335f1ca489032a.zip
   URL_MD5 64c673dd381b8fae9254053ad7b2be4d
-  TIMEOUT 60
+  TIMEOUT 600
   INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
   CONFIGURE_COMMAND ""
   BUILD_COMMAND ""
@@ -26,9 +26,9 @@ ExternalProject_Add(ext-singleproducerconsumer
 ExternalProject_Add(ext-concurrentqueue
   PREFIX concurrentqueue
   DOWNLOAD_DIR ${CMAKE_CURRENT_BINARY_DIR}/download
-  URL https://github.com/cameron314/concurrentqueue/archive/8f65a8734d77c3cc00d74c0532efca872931d3ce.zip
+  URL https://ghfast.top/https://github.com/cameron314/concurrentqueue/archive/8f65a8734d77c3cc00d74c0532efca872931d3ce.zip
   URL_MD5 71a0d932cc89150c2ade85f0d9cac9dc
-  TIMEOUT 60
+  TIMEOUT 600
   INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}
   CONFIGURE_COMMAND ""
   BUILD_COMMAND ""
