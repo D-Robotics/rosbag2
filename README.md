@@ -92,8 +92,8 @@ tros bag play /tmp/bag
 
 ```bash
 # launch 方式（推荐）
-ros2 launch rosbag2_transport composable_recorder.launch.py bag_uri:=/tmp/bag
-ros2 launch rosbag2_transport composable_player.launch.py bag_uri:=/tmp/bag
+ros2 launch trosbag composable_recorder.launch.py bag_uri:=/tmp/bag
+ros2 launch trosbag composable_player.launch.py bag_uri:=/tmp/bag
 
 # 手动加载组件（注意：用 Ctrl+C 退容器，不要用 ros2 component unload）
 ros2 run rclcpp_components component_container_mt --ros-args -r __node:=rec_ctr
