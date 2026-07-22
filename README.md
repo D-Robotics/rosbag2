@@ -4,6 +4,108 @@
 
 Repository for implementing rosbag2 as described in its corresponding [design article](https://github.com/ros2/design/blob/ros2bags/articles/rosbags.md).
 
+## D-Robotics 增强特性
+
+本分支（`humble-d-robotics`）基于官方 rosbag2 humble，增加了以下性能与功能增强。所有增强都向后兼容，原有 `ros2 bag record` / `ros2 bag play` 用法完全不受影响。
+
+### 1. 多线程 executor 录制（默认开启）
+
+录制时使用 `MultiThreadedExecutor`，并为每个 topic 创建独立的 `MutuallyExclusive` callback group，不同 topic 的订阅回调可并发执行，高负载下不再互相阻塞。
+
+- **无需任何 flag**，`ros2 bag record` 默认即走多线程路径。
+- `Writer::write` 内部加锁，保证多线程并发落盘安全。
+
+### 2. 消息缓存延迟写（msg cache delay write）
+
+通过攒批写盘减少 IO 次数：消息先进缓存，等缓存半满（或超时）才通知消费者线程刷盘，而非每条消息都刷。
+
+| CLI flag | 默认 | 说明 |
+|---|---|---|
+| `--no-delay` | 关（即默认开 delay） | 关闭延迟写，每条消息立即刷盘（低延迟场景） |
+| `--delay-timeout-ms <int>` | `200` | delay 模式下消费者超时刷盘毫秒数 |
+
+```bash
+# 默认开 delay（半满刷盘 + 200ms 超时）
+ros2 bag record -a -o /tmp/bag
+
+# 自定义超时 100ms
+ros2 bag record -a -o /tmp/bag --delay-timeout-ms 100
+
+# 关闭 delay，每条都刷
+ros2 bag record -o /tmp/bag --no-delay /chatter
+```
+
+> 仅在非 snapshot 模式且 `max_cache_size > 0` 时有意义；cache 关闭时直接写盘，delay 无效。
+
+### 3. 回放路径减少一次 memcpy
+
+Player 发布消息时直接调用 `rcl_publish_serialized_message` 使用 bag 内的序列化 buffer，跳过原来构造 `rclcpp::SerializedMessage` 的一次内存拷贝。大消息回放时降低 CPU 占用。纯内部优化，无 flag、对回放行为无可见变化。
+
+### 4. YAML 配置录制
+
+用 YAML 文件定义要录的 topic 列表及每个 topic 的 QoS profile。
+
+| CLI flag | 说明 |
+|---|---|
+| `--record-config <yaml>` | 从 YAML 加载 topic 列表 + 每 topic QoS 覆盖 |
+
+YAML 格式（顶层只识别 `topics` 键，值为 `topic_name -> qos_profile` 映射）：
+```yaml
+topics:
+  /chatter:
+    reliability: reliable
+    durability: volatile
+    history: keep_last
+    depth: 10
+  /odom:
+    reliability: best_effort
+    depth: 5
+  /image_raw:    # QoS 为空表示仅加入录制列表，不设 QoS override
+```
+
+```bash
+ros2 bag record -o /tmp/bag --record-config /tmp/cfg.yaml
+# 也可和命令行 topic 混用（命令行 topic 在前，去重合并）：
+ros2 bag record -o /tmp/bag --record-config /tmp/cfg.yaml /extra_topic
+```
+
+> `--record-config` 不能与 `-a/--all` 同时使用。对重叠 topic，`--record-config` 的 QoS 优先级高于 `--qos-profile-overrides-path`。此 flag 只配 topics + QoS，不配 storage options。
+
+### 5. trosbag 命令入口
+
+提供独立的 `tros bag` 命令入口（`tros bag record` / `tros bag play`），作为本分支优化版的统一入口，方便后续在 TROS 环境固化优化默认参数。当前行为与 `ros2 bag record` / `ros2 bag play` 完全一致。
+
+```bash
+# 先编译并 source
+colcon build --packages-select trosbag
+source install/setup.bash
+
+tros bag record -a -o /tmp/bag
+tros bag record -o /tmp/bag --no-delay --delay-timeout-ms 100 /chatter
+tros bag record -o /tmp/bag --record-config /tmp/cfg.yaml
+tros bag play /tmp/bag
+```
+
+### 6. Composable Recorder / Player
+
+`Recorder` 和 `Player` 支持作为 `rclcpp_components` 组件加载到 `component_container_mt`，可常驻运行、与其它节点共进程、由 launch 统一编排。详细参数表与用法见 [`docs/REPORT_composable_recorder.md`](docs/REPORT_composable_recorder.md)。
+
+```bash
+# launch 方式（推荐）
+ros2 launch rosbag2_transport composable_recorder.launch.py bag_uri:=/tmp/bag
+ros2 launch rosbag2_transport composable_player.launch.py bag_uri:=/tmp/bag
+
+# 手动加载组件（注意：用 Ctrl+C 退容器，不要用 ros2 component unload）
+ros2 run rclcpp_components component_container_mt --ros-args -r __node:=rec_ctr
+ros2 component load /rec_ctr rosbag2_transport rosbag2_transport::Recorder \
+  -p uri:=/tmp/bag -p storage_id:=sqlite3 -p topics:=[/chatter]
+```
+
+**已知限制**：
+- `ros2 component unload` 在 humble `component_container` 上有卸载时序缺陷（非 rosbag2 bug），建议用 launch 的 Ctrl+C 退出整容器。
+- `use_sim_time` 需在组件加载时通过 `-p use_sim_time:=true` 传入（rclcpp humble 的 TimeSource 在构造时同步读取，不能事后 `ros2 param set`）。
+- Player standalone 可执行在 ARM cyclonedds 下 SIGINT 不退出，用 launch（容器方式）规避。
+
 ## Installation instructions
 
 ## Debian packages
