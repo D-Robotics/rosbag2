@@ -4,7 +4,8 @@
   <name>trosbag</name>
   <version>0.1.0</version>
   <description>
-    Entry point for trosbag CLI tools (tros record / tros play)
+    Entry point for trosbag CLI tools (tros bag record / tros bag play) and
+    composable Recorder/Player launch files.
   </description>
   <maintainer email="tros@d-robotics.com">D-Robotics</maintainer>
   <license>Apache License 2.0</license>
@@ -14,6 +15,10 @@
   <exec_depend>ros2cli</exec_depend>
   <exec_depend>ros2bag</exec_depend>
   <exec_depend>rosbag2_py</exec_depend>
+  <exec_depend>rosbag2_transport</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

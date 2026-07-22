@@ -91,11 +91,6 @@ install(
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
-install(
-  DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
-  PATTERN "__pycache__" EXCLUDE
-)
 
 # Export old-style CMake variables
 ament_export_include_directories("include/${PROJECT_NAME}")
