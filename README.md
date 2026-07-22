@@ -73,17 +73,17 @@ ros2 bag record -o /tmp/bag --record-config /tmp/cfg.yaml /extra_topic
 
 ### 5. trosbag 命令入口
 
-提供独立的 `tros bag` 命令入口（`tros bag record` / `tros bag play`），作为本分支优化版的统一入口，方便后续在 TROS 环境固化优化默认参数。当前行为与 `ros2 bag record` / `ros2 bag play` 完全一致。
+提供独立的 `ros2 tros_bag` 命令入口（`ros2 tros_bag record` / `ros2 tros_bag play`），作为本分支优化版的统一入口，方便后续在 TROS 环境固化优化默认参数。当前行为与 `ros2 bag record` / `ros2 bag play` 完全一致。
 
 ```bash
 # 先编译并 source
 colcon build --packages-select trosbag
 source install/setup.bash
 
-tros bag record -a -o /tmp/bag
-tros bag record -o /tmp/bag --no-delay --delay-timeout-ms 100 /chatter
-tros bag record -o /tmp/bag --record-config /tmp/cfg.yaml
-tros bag play /tmp/bag
+ros2 tros_bag record -a -o /tmp/bag
+ros2 tros_bag record -o /tmp/bag --no-delay --delay-timeout-ms 100 /chatter
+ros2 tros_bag record -o /tmp/bag --record-config /tmp/cfg.yaml
+ros2 tros_bag play /tmp/bag
 ```
 
 ### 6. Composable Recorder / Player

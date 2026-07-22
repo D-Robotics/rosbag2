@@ -1,4 +1,4 @@
-"""tros record - wrapper around ros2bag record with custom defaults."""
+"""ros2 tros_bag record - wrapper around ros2bag record with custom defaults."""
 from ros2bag.verb.record import RecordVerb as _RecordVerb
 from trosbag.verb import VerbExtension
 

@@ -4,7 +4,7 @@
   <name>trosbag</name>
   <version>0.1.0</version>
   <description>
-    Entry point for trosbag CLI tools (tros bag record / tros bag play) and
+    Entry point for trosbag CLI tools (ros2 tros_bag record / ros2 tros_bag play) and
     composable Recorder/Player launch files.
   </description>
   <maintainer email="tros@d-robotics.com">D-Robotics</maintainer>
