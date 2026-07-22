@@ -88,7 +88,7 @@ tros bag play /tmp/bag
 
 ### 6. Composable Recorder / Player
 
-`Recorder` 和 `Player` 支持作为 `rclcpp_components` 组件加载到 `component_container_mt`，可常驻运行、与其它节点共进程、由 launch 统一编排。详细参数表与用法见 [`docs/REPORT_composable_recorder.md`](docs/REPORT_composable_recorder.md)。
+`Recorder` 和 `Player` 支持作为 `rclcpp_components` 组件加载到 `component_container_mt`，可常驻运行、与其它节点共进程、由 launch 统一编排。
 
 ```bash
 # launch 方式（推荐）
