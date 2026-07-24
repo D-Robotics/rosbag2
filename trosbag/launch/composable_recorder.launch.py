@@ -17,16 +17,28 @@
 Loads the `rosbag2_transport::Recorder` plugin into a component container and configures it
 entirely via ROS parameters - no `ros2 bag record` CLI involved.
 
+`bag_uri` is the parent folder where the bag is created. When `bag_name` is not given, a name
+is auto-generated using the same format as `ros2 bag record`'s default
+(`rosbag2_%Y_%m_%d-%H_%M_%S`), so the final uri passed to the Recorder is
+`<bag_uri>/<bag_name>`.
+
 Run with:
-    # record all topics (default)
-    ros2 launch rosbag2_transport composable_recorder.launch.py bag_uri:=/tmp/bag
+    # record all topics (default) into <bag_uri>/rosbag2_<timestamp>
+    ros2 launch rosbag2_transport composable_recorder.launch.py bag_uri:=/tmp/bags
 
     # record a specific topic list (YAML-quoted list string)
     ros2 launch rosbag2_transport composable_recorder.launch.py \\
-        bag_uri:=/tmp/bag all:=false topics:="['/chatter','/odom']"
+        bag_uri:=/tmp/bags all:=false topics:="['/chatter','/odom']"
+
+    # use an explicit bag name instead of the auto-generated timestamp
+    ros2 launch rosbag2_transport composable_recorder.launch.py \\
+        bag_uri:=/tmp/bags bag_name:=test_run
 
 Stop with Ctrl+C (the container tears down the recorder, flushing and closing the bag).
 """
+
+import datetime
+import os
 
 import yaml
 
@@ -56,7 +68,8 @@ def _build_container(context, *args, **kwargs):
     back to their real types before handing them to ComposableNode - otherwise rclcpp rejects
     them with "Wrong parameter type".
     """
-    bag_uri = LaunchConfiguration('bag_uri').perform(context)
+    bag_uri_parent = LaunchConfiguration('bag_uri').perform(context)
+    bag_name = LaunchConfiguration('bag_name').perform(context).strip()
     storage_id = LaunchConfiguration('storage_id').perform(context)
     all_topics = _to_bool(LaunchConfiguration('all').perform(context))
     topics_raw = LaunchConfiguration('topics').perform(context)
@@ -82,6 +95,17 @@ def _build_container(context, *args, **kwargs):
             f"max_cache_size:= must be an integer (bytes). Got: "
             f"{LaunchConfiguration('max_cache_size').perform(context)!r}") from e
 
+    # bag_uri is the parent folder; the bag itself goes into a subfolder named
+    # bag_name (if given) or the same `rosbag2_%Y_%m_%d-%H_%M_%S` default that
+    # `ros2 bag record` uses when no -o is supplied.
+    if not bag_name:
+        bag_name = datetime.datetime.now().strftime('rosbag2_%Y_%m_%d-%H_%M_%S')
+    bag_uri = os.path.join(bag_uri_parent, bag_name)
+    if os.path.exists(bag_uri):
+        raise ValueError(
+            f"Output path already exists: {bag_uri!r}. "
+            "Pick a different bag_name or remove the existing directory.")
+
     parameters = {
         'uri': bag_uri,
         'storage_id': storage_id,
@@ -101,6 +125,7 @@ def _build_container(context, *args, **kwargs):
         plugin='rosbag2_transport::Recorder',
         name='rosbag2_recorder',
         parameters=[parameters],
+        extra_arguments=[{'use_intra_process_comms': True}],
     )
 
     if container_name:
@@ -122,8 +147,16 @@ def _build_container(context, *args, **kwargs):
 
 def generate_launch_description():
     return LaunchDescription([
-        DeclareLaunchArgument('bag_uri', default_value='/tmp/rosbag2_composable',
-                              description='Output bag directory (same as `ros2 bag record -o`).'),
+        DeclareLaunchArgument('bag_uri', default_value='/tmp',
+                              description='Parent directory where the bag is created. '
+                                          'The bag is written to <bag_uri>/<bag_name>, with '
+                                          'bag_name defaulting to the same '
+                                          '`rosbag2_%Y_%m_%d-%H_%M_%S` timestamp format that '
+                                          '`ros2 bag record` uses when no -o is supplied.'),
+        DeclareLaunchArgument('bag_name', default_value='',
+                              description='Bag directory name placed under bag_uri. When empty '
+                                          '(default), a `rosbag2_%Y_%m_%d-%H_%M_%S` name is '
+                                          'auto-generated.'),
         DeclareLaunchArgument('storage_id', default_value='sqlite3',
                               description='Storage plugin id (sqlite3, mcap, ...).'),
         DeclareLaunchArgument('all', default_value='true',

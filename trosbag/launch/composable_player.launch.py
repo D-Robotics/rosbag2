@@ -76,6 +76,7 @@ def _build_container(context, *args, **kwargs):
         plugin='rosbag2_transport::Player',
         name='rosbag2_player',
         parameters=[parameters],
+        extra_arguments=[{'use_intra_process_comms': True}],
     )
 
     if container_name:
