@@ -33,7 +33,7 @@ import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import ComposableNodeContainer
+from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes
 from launch_ros.descriptions import ComposableNode
 
 
@@ -51,6 +51,7 @@ def _build_container(context, *args, **kwargs):
     clock_freq = float(LaunchConfiguration('clock_publish_frequency').perform(context))
     topics_raw = LaunchConfiguration('topics_to_filter').perform(context)
     container_exec = LaunchConfiguration('container_executable').perform(context)
+    container_name = LaunchConfiguration('container_name').perform(context).strip()
 
     topics_list = yaml.safe_load(topics_raw) if topics_raw else []
     if not isinstance(topics_list, list):
@@ -70,19 +71,27 @@ def _build_container(context, *args, **kwargs):
     if topics_list:
         parameters['topics_to_filter'] = topics_list
 
+    player_node = ComposableNode(
+        package='rosbag2_transport',
+        plugin='rosbag2_transport::Player',
+        name='rosbag2_player',
+        parameters=[parameters],
+        extra_arguments=[{'use_intra_process_comms': True}],
+    )
+
+    if container_name:
+        # Load into an existing container (e.g. tros_container from bringup)
+        return [LoadComposableNodes(
+            target_container=container_name,
+            composable_node_descriptions=[player_node],
+        )]
+
     return [ComposableNodeContainer(
         package='rclcpp_components',
         executable=container_exec,
         name='rosbag2_player_container',
         namespace='',
-        composable_node_descriptions=[
-            ComposableNode(
-                package='rosbag2_transport',
-                plugin='rosbag2_transport::Player',
-                name='rosbag2_player',
-                parameters=[parameters],
-            ),
-        ],
+        composable_node_descriptions=[player_node],
         output='screen',
     )]
 
@@ -107,6 +116,12 @@ def generate_launch_description():
                               description="YAML list of topics to play, e.g. \"['/foo','/bar']\". "
                                           'Leave as [] to play all.'),
         DeclareLaunchArgument('container_executable', default_value='component_container_mt',
-                              description='Component container executable.'),
+                              description='Component container executable. Used only when '
+                                          'container_name is empty.'),
+        DeclareLaunchArgument('container_name', default_value='',
+                              description='Existing container name to load the Player into. '
+                                          'When set (non-empty), uses LoadComposableNodes against that '
+                                          'container instead of spawning a new ComposableNodeContainer. '
+                                          'Empty (default) spawns a dedicated rosbag2_player_container.'),
         OpaqueFunction(function=_build_container),
     ])

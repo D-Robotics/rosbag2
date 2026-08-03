@@ -38,6 +38,10 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(pybind11_vendor REQUIRED)
 find_package(pybind11 REQUIRED)
 
+if(DEFINED PYTHON_SOABI AND NOT PYTHON_SOABI STREQUAL "")
+  set(PYTHON_MODULE_EXTENSION ".${PYTHON_SOABI}.so" CACHE STRING "" FORCE)
+endif()
+
 ament_python_install_package(${PROJECT_NAME})
 
 pybind11_add_module(_reader SHARED
