@@ -1,4 +1,4 @@
-"""tros play - wrapper around ros2bag play with custom defaults."""
+"""ros2 tros_bag play - wrapper around ros2bag play with custom defaults."""
 from ros2bag.verb.play import PlayVerb as _PlayVerb
 from trosbag.verb import VerbExtension
 
