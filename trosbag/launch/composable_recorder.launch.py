@@ -150,7 +150,10 @@ def _build_container(context, *args, **kwargs):
 
     # Write the flat QoS overrides sidecar next to the bag so the Recorder (which
     # only accepts a *file path* via qos_profile_overrides_path) can load it.
+    # The parent dir may not exist yet (the Recorder creates the bag subdir
+    # itself), so create it here.
     if flat_qos_overrides:
+        os.makedirs(bag_uri_parent, exist_ok=True)
         qos_overrides_path = os.path.join(
             bag_uri_parent, '.' + bag_name + '_qos_overrides.yaml')
         with open(qos_overrides_path, 'w') as f:
