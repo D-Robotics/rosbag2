@@ -45,6 +45,7 @@ The package provides the tros command for recording and playing bag files.""",
         'trosbag.verb': [
             'record = trosbag.verb.record:RecordVerb',
             'play = trosbag.verb.play:PlayVerb',
+            'interval = trosbag.verb.interval:IntervalVerb',
         ],
     }
 )

@@ -106,6 +106,55 @@ ros2 component load /rec_ctr rosbag2_transport rosbag2_transport::Recorder \
 - `use_sim_time` 需在组件加载时通过 `-p use_sim_time:=true` 传入（rclcpp humble 的 TimeSource 在构造时同步读取，不能事后 `ros2 param set`）。
 - Player standalone 可执行在 ARM cyclonedds 下 SIGINT 不退出，用 launch（容器方式）规避。
 
+### 7. 消息时间间隔分析（`tros_bag interval`）
+
+`trosbag` 提供 `interval` 子命令，用于分析 bag 中各 topic 相邻消息的时间间隔，辅助排查录制过程中的丢消息/卡顿问题。工具读取每条消息的 `header.stamp`（消息自带时间戳，而非 bag 落盘时间），按 topic 计算相邻消息间隔，打印统计表并生成散点图。
+
+无 `header` 的 topic 会回退到 bag 录制时间戳，并打印 `[WARN]` 提示。
+
+| CLI 参数 | 默认 | 说明 |
+|---|---|---|
+| `bag_path` | （必填） | bag 文件或目录路径 |
+| `--storage` | `mcap` | 存储后端（`mcap` / `sqlite3` 等） |
+| `--topics <t1> <t2> ...` | 全部 | 仅分析指定 topic |
+| `--output-dir <dir>` | `<bag_dir>/bag_interval_plots` | 散点图输出目录 |
+| `--no-plot` | 关 | 只打印统计表，不画图 |
+
+```bash
+# 先编译并 source
+colcon build --packages-select trosbag
+source install/setup.bash
+
+# 分析整个 bag（默认 mcap）
+ros2 tros_bag interval /tmp/bag
+
+# 指定 topic 并自定义输出目录
+ros2 tros_bag interval /tmp/bag --topics /chatter /odom --output-dir ./plots
+
+# 只看统计不画图
+ros2 tros_bag interval /tmp/bag --no-plot
+
+# sqlite3 存储
+ros2 tros_bag interval /tmp/bag --storage sqlite3
+```
+
+输出示例（统计表）：
+```
+======================================================================
+Topic                                         Msgs   Min(ms)  Mean(ms)  Max(ms)
+----------------------------------------------------------------------
+/chatter                                         50     9.876    10.012    12.345
+/odom                                           100     4.987     5.001      6.432
+======================================================================
+
+Generating plot: /tmp/bag/bag_interval_plots/interval_scatter.png
+Done!
+```
+
+散点图（`interval_scatter.png`）每个 topic 一个子图，横轴为消息序号、纵轴为相邻消息间隔(ms)，右上角标注 Min/Mean/Std/Max 统计。丢消息会在图上表现为异常大的间隔尖峰。
+
+> 依赖 `matplotlib` 与 `numpy`：`pip3 install matplotlib numpy`。
+
 ## Installation instructions
 
 ## Debian packages
