@@ -15,6 +15,9 @@ setup(
             'launch/composable_recorder.launch.py',
             'launch/composable_player.launch.py',
         ]),
+        ('share/' + package_name + '/config', [
+            'config/record_config.yaml',
+        ]),
     ],
     install_requires=['ros2cli', 'ros2bag'],
     zip_safe=True,
