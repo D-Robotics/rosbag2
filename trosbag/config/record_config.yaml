@@ -1,24 +1,26 @@
-# rosbag2 --record-config 示例配置
+# rosbag2 record_config 示例配置 (CLI `--record-config` 与 component launch 通用)
 # ============================================================================
-# 用法 (CLI):
+# 用法 1 - CLI:
 #   ros2 bag record -o /tmp/my_bag --record-config \
 #       $(ros2 pkg prefix trosbag)/share/trosbag/config/record_config.yaml
 #
-# 也可以直接用源码里的文件:
-#   ros2 bag record -o /tmp/my_bag --record-config trosbag/config/record_config.yaml
+# 用法 2 - composable (component) launch:
+#   ros2 launch trosbag composable_recorder.launch.py \
+#       bag_uri:=/tmp/bags \
+#       record_config:=$(ros2 pkg prefix trosbag)/share/trosbag/config/record_config.yaml
+#   (launch 会从 `topics:` 段派生 topic 列表并把 per-topic QoS 写到 sidecar
+#    扁平 yaml, 通过 Recorder 的 qos_profile_overrides_path 参数加载;
+#    topics 也会和 topics:= 参数合并, 与 CLI 行为一致)
 #
 # 说明:
 #  - 顶层必须是 YAML mapping; 解析器只读取 'topics' 段, 其余顶层字段被忽略
-#    (output / compression 等请走命令行参数 -o / --compression-mode)
-#  - 不能与 --all 一起使用 (ros2bag/verb/record.py 会报错)
+#    (output / compression 等请走命令行参数 -o / --compression-mode,
+#     或 launch 的 bag_uri / storage_id 参数)
+#  - CLI 模式下不能与 --all 一起用 (ros2bag/verb/record.py 会报错);
+#    component launch 模式下设置 record_config 会自动 all:=false
 #  - 对重叠 topic, 此处 QoS 优先级高于 --qos-profile-overrides
 #  - qos_profile 字段格式与 --qos-profile-overrides 完全一致
 #    (reliability/durability/history/depth/deadline/lifespan/liveliness)
-#
-# 注意: 这是 CLI `--record-config` 专用格式 (带 'topics:' 包裹).
-#       composable (component) 模式不经过 CLI, 不使用此文件;
-#       component 模式如需 per-topic QoS, 用 'qos_profile_overrides_path' 参数
-#       指向一个 *扁平* mapping (无 'topics:' 包裹) 的 yaml 文件.
 # ============================================================================
 
 topics:
