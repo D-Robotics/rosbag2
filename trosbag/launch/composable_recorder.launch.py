@@ -34,6 +34,12 @@ Run with:
     ros2 launch rosbag2_transport composable_recorder.launch.py \\
         bag_uri:=/tmp/bags bag_name:=test_run
 
+    # drive topic list + per-topic QoS from a single yaml (same format as the
+    # `ros2 bag record --record-config` CLI), so one config works everywhere
+    ros2 launch rosbag2_transport composable_recorder.launch.py \\
+        bag_uri:=/tmp/bags \\
+        record_config:=$(ros2 pkg prefix trosbag)/share/trosbag/config/record_config.yaml
+
 Stop with Ctrl+C (the container tears down the recorder, flushing and closing the bag).
 """
 
@@ -87,6 +93,42 @@ def _build_container(context, *args, **kwargs):
             "topics:= must be a YAML list, e.g. topics:=\"['/foo','/bar']\". "
             f"Got: {topics_raw!r}")
 
+    # record_config (CLI --record-config format: a top-level `topics:` mapping of
+    # topic -> qos_profile). When set, the topics come from the config (merged with
+    # `topics:=` if given) and the per-topic QoS is written to a sidecar flat yaml
+    # that the Recorder picks up via its `qos_profile_overrides_path` parameter
+    # (which expects a *flat* topic -> qos mapping, without the `topics:` wrapper).
+    record_config_path = LaunchConfiguration('record_config').perform(context).strip()
+    config_topics = []
+    flat_qos_overrides = {}
+    qos_overrides_path = ''
+    if record_config_path:
+        if not os.path.isfile(record_config_path):
+            raise ValueError(
+                f"record_config:= file not found: {record_config_path!r}")
+        with open(record_config_path, 'r') as f:
+            record_config_dict = yaml.safe_load(f) or {}
+        if not isinstance(record_config_dict, dict):
+            raise ValueError(
+                f"record_config:= file must be a YAML mapping: {record_config_path!r}")
+        topics_section = record_config_dict.get('topics', {}) or {}
+        if not isinstance(topics_section, dict):
+            raise ValueError(
+                "record_config 'topics' must be a mapping of topic: qos_profile")
+        for topic, profile in topics_section.items():
+            config_topics.append(topic)
+            if profile is not None:
+                flat_qos_overrides[topic] = profile
+
+    # Merge config_topics into topics_list (config first, dedup; mirrors the CLI).
+    if config_topics:
+        if all_topics:
+            print('[WARN] [composable_recorder]: record_config provides topics; '
+                  'forcing all:=false (cannot combine --all with record_config).')
+            all_topics = False
+        merged = config_topics + [t for t in topics_list if t not in config_topics]
+        topics_list = merged
+
     # Coerce numeric args with a clear error on bad input instead of a raw Python traceback.
     try:
         max_cache_size = int(LaunchConfiguration('max_cache_size').perform(context))
@@ -106,6 +148,17 @@ def _build_container(context, *args, **kwargs):
             f"Output path already exists: {bag_uri!r}. "
             "Pick a different bag_name or remove the existing directory.")
 
+    # Write the flat QoS overrides sidecar next to the bag so the Recorder (which
+    # only accepts a *file path* via qos_profile_overrides_path) can load it.
+    # The parent dir may not exist yet (the Recorder creates the bag subdir
+    # itself), so create it here.
+    if flat_qos_overrides:
+        os.makedirs(bag_uri_parent, exist_ok=True)
+        qos_overrides_path = os.path.join(
+            bag_uri_parent, '.' + bag_name + '_qos_overrides.yaml')
+        with open(qos_overrides_path, 'w') as f:
+            yaml.safe_dump(flat_qos_overrides, f, sort_keys=False)
+
     parameters = {
         'uri': bag_uri,
         'storage_id': storage_id,
@@ -119,6 +172,8 @@ def _build_container(context, *args, **kwargs):
     }
     if topics_list:  # only inject when non-empty; launch_ros rejects empty sequences
         parameters['topics'] = topics_list
+    if qos_overrides_path:
+        parameters['qos_profile_overrides_path'] = qos_overrides_path
 
     recorder_node = ComposableNode(
         package='rosbag2_transport',
@@ -166,6 +221,14 @@ def generate_launch_description():
                               description="YAML list of topics, e.g. \"['/foo', '/bar']\". "
                                           'Mutually exclusive with all:=true. Leave as [] to '
                                           'record all (with all:=true) or use regex.'),
+        DeclareLaunchArgument('record_config', default_value='',
+                              description='Path to a `--record-config` style yaml (top-level '
+                                          '`topics:` mapping of topic -> qos_profile, same format '
+                                          'as the `ros2 bag record --record-config` CLI). When '
+                                          'set, topics are taken from the config (merged with '
+                                          'topics:=) and all:= is forced false. Per-topic QoS is '
+                                          'written to a sidecar flat yaml and fed to the Recorder '
+                                          'via qos_profile_overrides_path.'),
         DeclareLaunchArgument('regex', default_value='',
                               description='Record topics matching this regex.'),
         DeclareLaunchArgument('start_paused', default_value='false',
