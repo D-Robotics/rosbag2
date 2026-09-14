@@ -175,6 +175,15 @@ def _build_container(context, *args, **kwargs):
     if qos_overrides_path:
         parameters['qos_profile_overrides_path'] = qos_overrides_path
 
+    # Compression options (CLI parity: --compression-mode/--compression-format).
+    # Empty strings mean disabled — the Recorder treats them as unset.
+    compression_mode = LaunchConfiguration('compression_mode').perform(context).strip()
+    compression_format = LaunchConfiguration('compression_format').perform(context).strip()
+    if compression_mode:
+        parameters['compression_mode'] = compression_mode
+    if compression_format:
+        parameters['compression_format'] = compression_format
+
     recorder_node = ComposableNode(
         package='rosbag2_transport',
         plugin='rosbag2_transport::Recorder',
@@ -243,6 +252,12 @@ def generate_launch_description():
         DeclareLaunchArgument('delay', default_value='true',
                               description='Enable delayed cache consumption (d-robotics perf '
                                           'optimization). Set to false to flush on every message.'),
+        DeclareLaunchArgument('compression_mode', default_value='',
+                              description='Compression mode (CLI parity with --compression-mode; '
+                                          'e.g. file). Empty = disabled.'),
+        DeclareLaunchArgument('compression_format', default_value='',
+                              description='Compression format (CLI parity with '
+                                          '--compression-format; e.g. zstd). Empty = disabled.'),
         DeclareLaunchArgument('container_executable', default_value='component_container_mt',
                               description='Component container executable. Used only when '
                                           'container_name is empty. Use component_container_mt '
