@@ -29,6 +29,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(rcutils REQUIRED)
 find_package(rmw REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rosbag2_compression REQUIRED)
 find_package(rosbag2_cpp REQUIRED)
 find_package(rosbag2_interfaces REQUIRED)
@@ -61,6 +62,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rosbag2_interfaces
   rosbag2_storage
   shared_queues_vendor
+  std_msgs
   yaml_cpp_vendor
 )
 

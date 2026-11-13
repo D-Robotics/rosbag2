@@ -33,6 +33,7 @@
 #include "rclcpp/publisher.hpp"
 #include "rclcpp/exceptions/exceptions.hpp"
 #include "rclcpp/qos.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 #include "rcl/publisher.h"
 
@@ -223,6 +224,14 @@ private:
   std::mutex ready_to_play_from_queue_mutex_;
   std::condition_variable ready_to_play_from_queue_cv_;
   rclcpp::Publisher<rosgraph_msgs::msg::Clock>::SharedPtr clock_publisher_;
+  // Playback lifecycle events so an external orchestrator can wait for
+  // playback start/end without subscribing to any bag data topic (a data-topic
+  // idle watcher costs ~50% of a core at 200 Hz in a Python spin loop).
+  // Volatile QoS: intra-process nodes forbid non-volatile durability; the
+  // orchestrator subscribes before launching the system, so no latching is
+  // needed (see player.cpp).
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr playback_started_publisher_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr playback_done_publisher_;
   std::unordered_map<std::string, std::shared_ptr<PlayerPublisher>> publishers_;
 
 private:

@@ -21,6 +21,7 @@
   <depend>rosbag2_storage</depend>
   <depend>rmw</depend>
   <depend>shared_queues_vendor</depend>
+  <depend>std_msgs</depend>
   <depend>yaml_cpp_vendor</depend>
   <depend>keyboard_handler</depend>
 

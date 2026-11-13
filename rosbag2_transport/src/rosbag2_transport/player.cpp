@@ -273,6 +273,11 @@ void Player::play()
   }
 
   try {
+    {
+      std_msgs::msg::Bool started_msg;
+      started_msg.data = true;
+      playback_started_publisher_->publish(started_msg);
+    }
     do {
       if (delay > rclcpp::Duration(0, 0)) {
         RCLCPP_INFO_STREAM(get_logger(), "Sleep " << delay.nanoseconds() << " ns");
@@ -335,6 +340,15 @@ void Player::play()
           e.what());
       }
     }
+  }
+
+  // Published on every exit path of play() (natural end, stop request, or
+  // failure): it means "the player will not publish any more bag data", which
+  // is exactly what an orchestrator waiting for playback completion needs.
+  {
+    std_msgs::msg::Bool done_msg;
+    done_msg.data = true;
+    playback_done_publisher_->publish(done_msg);
   }
 }
 
@@ -593,6 +607,14 @@ void Player::prepare_publishers()
   // Create topic publishers
   auto topics = reader_->get_all_topics_and_types();
   std::string topic_without_support_acked;
+
+  {
+    const auto lifecycle_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable();
+    playback_started_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      "/rosbag2_player/playback_started", lifecycle_qos);
+    playback_done_publisher_ = create_publisher<std_msgs::msg::Bool>(
+      "/rosbag2_player/playback_done", lifecycle_qos);
+  }
   for (const auto & topic : topics) {
     if (publishers_.find(topic.name) != publishers_.end()) {
       continue;
